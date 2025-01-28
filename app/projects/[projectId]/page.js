@@ -11,8 +11,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
-import { Trash, Plus, Edit, Save, X, Play, Pause } from "lucide-react"; // Icons
+import { Trash, Plus, Edit, Save, X, Upload } from "lucide-react"; // Icons
 import { useToast } from "@/hooks/use-toast";
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts"
@@ -26,10 +27,14 @@ export default function DrillDownPage({ params }) {
   const [activities, setActivities] = useState([]);
   const [timeLogs, setTimeLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [files, setFiles] = useState([]); // For file management
+  const [newFile, setNewFile] = useState(null);
+  const [fileAlert, setFileAlert] = useState(false); // Alert for missing file
   const [newLink, setNewLink] = useState({ url: "", description: "" });
   const [inProgress, setInProgress] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [updatedTitle, setUpdatedTitle] = useState("");
+  
   const { toast } = useToast();
 
   // Fetch project details, links, and activities
@@ -69,10 +74,84 @@ export default function DrillDownPage({ params }) {
     }
   };
 
+  const fetchFiles = async () => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/files`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch files.");
+      }
+
+      setFiles(data.files || []);
+    } catch (err) {
+      console.error(err.message);
+    }
+  };
+
   useEffect(() => {
     fetchProjectDetails();
     fetchTimeLogs();
+    fetchFiles();
   }, [projectId]);
+
+  const handleUploadFile = async () => {
+    if (!newFile) {
+      setFileAlert(true);
+      setTimeout(() => setFileAlert(false), 5000); // Automatically hide the alert after 5 seconds
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", newFile);
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/files`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to upload file.");
+      }
+
+      const data = await response.json();
+      setFiles((prev) => [...prev, { name: newFile.name, url: data.url }]);
+      setNewFile(null); // Reset the file input
+
+      toast({
+        title: "File Uploaded",
+        description: "The file was uploaded successfully.",
+        duration: 3000,
+      });
+    } catch (err) {
+      console.error("Error uploading file:", err.message);
+    }
+  };
+
+  const handleDeleteFile = async (fileName) => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}/files`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to delete file.");
+      }
+
+      setFiles((prev) => prev.filter((file) => file.name !== fileName));
+
+      toast({
+        title: "File Deleted",
+        description: "The file was deleted successfully.",
+        duration: 3000,
+      });
+    } catch (err) {
+      console.error("Error deleting file:", err.message);
+    }
+  };
 
   const getChartData = () => {
     const aggregation = timeLogs.reduce((acc, log) => {
@@ -234,6 +313,61 @@ export default function DrillDownPage({ params }) {
         )}
         <p>{project.summary}</p>
       </header>
+
+      <section>
+        <h2 className="text-xl font-semibold mb-4">Managed Files</h2>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>File Name</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {files.length > 0 ? (
+              files.map((file) => (
+                <TableRow key={file.name}>
+                  <TableCell>
+                    <a
+                      href={file.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-500 underline"
+                    >
+                      {file.name}
+                    </a>
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-red-500"
+                      onClick={() => handleDeleteFile(file.name)}
+                    >
+                      <Trash className="w-4 h-4" />
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan="2">No files uploaded yet.</TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+
+        <div className="flex items-center gap-2 mt-4">
+          <Input
+            type="file"
+            onChange={(e) => setNewFile(e.target.files[0])}
+            className="w-2/3"
+          />
+          <Button onClick={handleUploadFile}>
+            <Upload className="w-4 h-4" />
+          </Button>
+        </div>
+      </section>
 
       <section className="mb-8">
         <h2 className="text-xl font-semibold mb-2">Links</h2>
